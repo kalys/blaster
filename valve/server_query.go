@@ -86,6 +86,51 @@ func (this *ServerQuerier) QueryInfo() (*ServerInfo, error) {
 	return this.info, nil
 }
 
+func (this *ServerQuerier) QueryPlayers() (PlayersInfo, error) {
+	players := PlayersInfo{}
+	var packet PacketBuilder
+	packet.WriteBytes([]byte{0xff, 0xff, 0xff, 0xff, 0x55, 0xff, 0xff, 0xff, 0xff})
+	if err := this.socket.Send(packet.Bytes()); err != nil {
+		return players, err
+	}
+	data, err := this.socket.Recv()
+	if err != nil {
+		return players, err
+	}
+	packet.Reset()
+	packet.WriteBytes([]byte{0xff, 0xff, 0xff, 0xff, 0x55})
+	packet.WriteBytes(data[5:9])
+
+	if err := this.socket.Send(packet.Bytes()); err != nil {
+		return players, err
+	}
+	data, err = this.socket.Recv()
+	if err != nil {
+		return players, err
+	}
+
+	reader := NewPacketReader(data)
+	if reader.ReadInt32() != -1 {
+		return players, ErrBadPacketHeader
+	}
+
+	reader.ReadUint8()
+	numPlayers := reader.ReadUint8()
+	players.NumPlayers = numPlayers
+
+	for i := uint8(0); i < numPlayers; i++ {
+		reader.ReadUint8()
+		player := Player{
+			Nickname: reader.ReadString(),
+			Kills:    reader.ReadUint32(),
+			Time:     uint32(reader.ReadFloat32()),
+		}
+		players.Players = append(players.Players, player)
+	}
+
+	return players, nil
+}
+
 func (this *ServerQuerier) check_bad_a2s_info(info *ServerInfo) error {
 	this.socket.SetTimeout(time.Millisecond * 250)
 	defer this.socket.SetTimeout(this.timeout)
